@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scientific Multimodal RAG</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --primary-hover: #1d4ed8;
+            --bg: #f8fafc;
+            --surface: #ffffff;
+            --text: #1e293b;
+            --text-secondary: #64748b;
+            --border: #e2e8f0;
+            --success: #22c55e;
+            --warning: #f59e0b;
+            --error: #ef4444;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                         "Helvetica Neue", Arial, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 960px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        header h1 {
+            font-size: 1.75rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+
+        header p {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+        }
+
+        .query-section {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+        }
+
+        .query-section label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        .query-input {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: 1rem;
+            resize: vertical;
+            min-height: 80px;
+            transition: border-color 0.2s;
+        }
+
+        .query-input:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+        }
+
+        .examples {
+            margin-top: 1rem;
+        }
+
+        .examples span {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        .example-chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+        }
+
+        .example-chip {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 0.35rem 0.75rem;
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .example-chip:hover {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+        }
+
+        .submit-btn {
+            display: block;
+            width: 100%;
+            padding: 0.75rem;
+            margin-top: 1rem;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .submit-btn:hover {
+            background: var(--primary-hover);
+        }
+
+        .submit-btn:disabled {
+            background: var(--text-secondary);
+            cursor: not-allowed;
+        }
+
+        .result-section {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+            display: none;
+        }
+
+        .result-section.visible {
+            display: block;
+        }
+
+        .result-section h2 {
+            font-size: 1.1rem;
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .answer-text {
+            font-size: 0.95rem;
+            line-height: 1.7;
+            white-space: pre-wrap;
+        }
+
+        .metadata-row {
+            display: flex;
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .metadata-item {
+            flex: 1;
+            background: var(--bg);
+            border-radius: 8px;
+            padding: 0.75rem;
+            text-align: center;
+        }
+
+        .metadata-item .label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .metadata-item .value {
+            font-size: 1.25rem;
+            font-weight: 700;
+            margin-top: 0.25rem;
+        }
+
+        .value.success { color: var(--success); }
+        .value.warning { color: var(--warning); }
+        .value.error { color: var(--error); }
+
+        .source-card {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-top: 0.75rem;
+        }
+
+        .source-card .title {
+            font-weight: 600;
+        }
+
+        .source-card .pages {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        .source-card a {
+            color: var(--primary);
+            text-decoration: none;
+        }
+
+        .source-card a:hover {
+            text-decoration: underline;
+        }
+
+        .page-preview {
+            margin-top: 1rem;
+            text-align: center;
+        }
+
+        .page-preview img {
+            max-width: 100%;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+        }
+
+        footer {
+            text-align: center;
+            padding: 2rem 0;
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔬 Scientific Multimodal RAG</h1>
+            <p>Ask questions about Vision Transformer research papers. Powered by ColPali + SciNCL + Qwen2-VL</p>
+        </header>
+
+        <section class="query-section">
+            <label for="query">Your Question</label>
+            <textarea
+                id="query"
+                class="query-input"
+                placeholder="Ask about Vision Transformers..."
+            ></textarea>
+
+            <div class="examples">
+                <span>Try:</span>
+                <div class="example-chips">
+                    <button class="example-chip" onclick="setQuery('What is Vision Transformer?')">What is Vision Transformer?</button>
+                    <button class="example-chip" onclick="setQuery('How does the patch embedding work in ViT?')">Patch Embedding</button>
+                    <button class="example-chip" onclick="setQuery('What is the difference between ViT and DeiT?')">ViT vs DeiT</button>
+                    <button class="example-chip" onclick="setQuery('Explain the attention mechanism in Vision Transformers')">Attention Mechanism</button>
+                </div>
+            </div>
+
+            <button class="submit-btn" id="submitBtn" onclick="submitQuery()">Submit</button>
+        </section>
+
+        <section class="result-section" id="answerSection">
+            <h2>Answer</h2>
+            <div class="answer-text" id="answerText"></div>
+
+            <div class="metadata-row">
+                <div class="metadata-item">
+                    <div class="label">Confidence</div>
+                    <div class="value" id="confidenceValue">--</div>
+                </div>
+                <div class="metadata-item">
+                    <div class="label">Self-Check</div>
+                    <div class="value" id="checkValue">--</div>
+                </div>
+                <div class="metadata-item">
+                    <div class="label">Time</div>
+                    <div class="value" id="timeValue">--</div>
+                </div>
+            </div>
+        </section>
+
+        <section class="result-section" id="sourcesSection">
+            <h2>Sources</h2>
+            <div id="sourcesList"></div>
+        </section>
+
+        <section class="result-section" id="previewSection">
+            <h2>Page Preview</h2>
+            <div class="page-preview">
+                <img id="pageImage" alt="Retrieved page" />
+            </div>
+        </section>
+
+        <footer>
+            Scientific Multimodal RAG — ColPali + SciNCL + Qwen2-VL
+        </footer>
+    </div>
+
+    <script>
+        function setQuery(text) {
+            document.getElementById('query').value = text;
+        }
+
+        async function submitQuery() {
+            const query = document.getElementById('query').value.trim();
+            if (!query) {
+                alert('Please enter a question.');
+                return;
+            }
+
+            const btn = document.getElementById('submitBtn');
+            btn.disabled = true;
+            btn.textContent = 'Processing...';
+
+            // This is a placeholder — connect to the actual API endpoint
+            // In production, replace with a fetch() call to the FastAPI backend
+            try {
+                // const response = await fetch('/api/query', {
+                //     method: 'POST',
+                //     headers: { 'Content-Type': 'application/json' },
+                //     body: JSON.stringify({ question: query }),
+                // });
+                // const data = await response.json();
+                // displayResults(data);
+
+                // Placeholder display
+                document.getElementById('answerText').textContent =
+                    'Connecting to the RAG pipeline... This frontend is a skeleton. ' +
+                    'Connect it to the FastAPI backend for live answers.';
+                document.getElementById('answerSection').classList.add('visible');
+            } catch (error) {
+                alert('Error: ' + error.message);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Submit';
+            }
+        }
+
+        function displayResults(data) {
+            // Display answer
+            document.getElementById('answerText').textContent = data.answer || 'No answer.';
+            document.getElementById('answerSection').classList.add('visible');
+
+            // Display metadata
+            const confEl = document.getElementById('confidenceValue');
+            confEl.textContent = (data.confidence * 100).toFixed(0) + '%';
+            confEl.className = 'value ' + (data.confidence >= 0.6 ? 'success' : 'error');
+
+            const checkEl = document.getElementById('checkValue');
+            checkEl.textContent = data.check_passed ? 'PASS' : 'FAIL';
+            checkEl.className = 'value ' + (data.check_passed ? 'success' : 'error');
+
+            document.getElementById('timeValue').textContent = data.time.toFixed(1) + 's';
+
+            // Display sources
+            const sourcesList = document.getElementById('sourcesList');
+            sourcesList.innerHTML = '';
+            if (data.sources && data.sources.length > 0) {
+                data.sources.forEach(src => {
+                    const card = document.createElement('div');
+                    card.className = 'source-card';
+                    card.innerHTML = `
+                        <div class="title">${src.title}</div>
+                        <div class="pages">Pages: ${src.page_numbers.join(', ')} — Score: ${src.score.toFixed(3)}</div>
+                        <a href="${src.url}" target="_blank">View on arXiv</a>
+                    `;
+                    sourcesList.appendChild(card);
+                });
+                document.getElementById('sourcesSection').classList.add('visible');
+            }
+
+            // Display page preview
+            if (data.page_image) {
+                document.getElementById('pageImage').src = data.page_image;
+                document.getElementById('previewSection').classList.add('visible');
+            }
+        }
+
+        // Allow Enter key to submit
+        document.getElementById('query').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                submitQuery();
+            }
+        });
+    </script>
+</body>
+</html>

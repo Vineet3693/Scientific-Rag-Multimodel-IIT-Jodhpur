@@ -1,0 +1,50 @@
+# Core ML
+torch>=2.0.0
+transformers>=4.36.0
+accelerate>=0.25.0
+bitsandbytes>=0.41.0
+Pillow>=9.0.0
+
+# ColPali
+colpali-engine>=0.3.0
+
+# SciNCL
+sentence-transformers>=2.2.0
+
+# PDF Processing
+pdf2image>=1.16.3
+marker-pdf>=0.2.0
+pymupdf>=1.23.0
+
+# Vector Store
+chromadb>=0.4.22
+
+# arXiv
+arxiv>=2.1.0
+
+# Data
+numpy>=1.24.0
+pandas>=2.0.0
+
+# Evaluation
+nltk>=3.8.0
+rouge-score>=0.1.2
+sacrebleu>=2.3.0
+
+# Logging
+colorlog>=6.7.0
+
+# Visualization
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# YAML config
+pyyaml>=6.0.1
+
+# Demo
+gradio>=4.0.0
+streamlit>=1.30.0
+
+# Utilities
+tqdm>=4.66.0
+python-dotenv>=1.0.0

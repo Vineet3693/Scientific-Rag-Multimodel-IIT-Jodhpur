@@ -1,0 +1,14 @@
+{
+    "title": "Scientific Multimodal RAG",
+    "id": "vineet/scientific-multimodal-rag",
+    "code_file": "notebook-online.py",
+    "language": "python",
+    "kernel_type": "script",
+    "is_private": "false",
+    "enable_gpu": "true",
+    "enable_internet": "true",
+    "dataset_sources": [],
+    "kernel_sources": [],
+    "competition_sources": [],
+    "keywords": ["rag", "multimodal", "colpali", "vision-transformer"]
+}

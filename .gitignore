@@ -1,0 +1,50 @@
+# Environment
+.env
+.venv/
+venv/
+
+
+# Data directories (large files)
+data/
+outputs/
+
+# Model caches
+models/
+*.bin
+*.safetensors
+*.gguf
+
+# PDF and image files
+*.pdf
+*.png
+*.jpg
+*.jpeg
+
+# Embedding files (large)
+*.npy
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+# ChromaDB
+chroma.sqlite3
