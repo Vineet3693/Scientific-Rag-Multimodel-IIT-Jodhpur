@@ -140,11 +140,13 @@ class TextRetriever(BaseRetriever):
             # List available collections for debugging.
             collections = self._client.list_collections()
             collection_names = [c.name for c in collections]
-            logger.debug(
+            logger.info(
                 "Available ChromaDB collections: %s", collection_names
             )
 
-            self._collection = self._client.get_collection(
+            # get_or_create_collection ensures the collection always exists,
+            # even if ingestion was never run or was interrupted.
+            self._collection = self._client.get_or_create_collection(
                 name=self.collection_name,
             )
 
@@ -152,7 +154,7 @@ class TextRetriever(BaseRetriever):
             self._loaded = True
 
             logger.info(
-                "ChromaDB collection '%s' loaded — %d documents indexed.",
+                "ChromaDB collection '%s' ready — %d documents indexed.",
                 self.collection_name,
                 count,
             )

@@ -139,10 +139,19 @@ class SciNCLEmbedder(BaseEmbedder):
 
         try:
             from transformers import AutoModel, AutoTokenizer
+            from src.utils.model_cache import HF_CACHE_DIR
 
             logger.info("Downloading / loading SciNCL weights…")
-            self._tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-            self._model = AutoModel.from_pretrained(self.model_name)
+            self._tokenizer = AutoTokenizer.from_pretrained(
+                self.model_name,
+                cache_dir=HF_CACHE_DIR,
+                local_files_only=False,
+            )
+            self._model = AutoModel.from_pretrained(
+                self.model_name,
+                cache_dir=HF_CACHE_DIR,
+                local_files_only=False,
+            )
             self._model = self._model.to(self.device)
             self._model.eval()
             logger.info("SciNCL model loaded and set to eval mode.")

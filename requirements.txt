@@ -1,30 +1,31 @@
 # Core ML
-torch>=2.0.0
-transformers>=4.36.0
-accelerate>=0.25.0
-bitsandbytes>=0.41.0
-Pillow>=9.0.0
+--extra-index-url https://download.pytorch.org/whl/cu121
+torch==2.7.0
+transformers==4.41.2
+accelerate==0.29.3
+bitsandbytes==0.41.0
+Pillow==10.3.0
 
 # ColPali
-colpali-engine>=0.3.0
+colpali-engine==0.3.0
 
 # SciNCL
-sentence-transformers>=2.2.0
+sentence-transformers==2.7.0
 
 # PDF Processing
 pdf2image>=1.16.3
 marker-pdf>=0.2.0
-pymupdf>=1.23.0
+pymupdf==1.24.4
 
 # Vector Store
-chromadb>=0.4.22
+chromadb==1.5.9
 
 # arXiv
 arxiv>=2.1.0
 
 # Data
-numpy>=1.24.0
-pandas>=2.0.0
+numpy==1.26.4
+pandas==2.2.2
 
 # Evaluation
 nltk>=3.8.0

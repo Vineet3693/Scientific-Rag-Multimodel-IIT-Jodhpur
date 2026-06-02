@@ -50,9 +50,11 @@ from typing import Any, Dict, List, Optional, Union
 
 import numpy as np
 import torch
+from transformers import AutoModel, AutoProcessor
 
 from src.embeddings.base_embedder import BaseEmbedder, EmbeddingOutput
 from src.utils.logging_utils import get_logger
+from src.utils.model_cache import HF_CACHE_DIR
 
 logger = get_logger(__name__)
 
@@ -117,7 +119,7 @@ class ColPaliEmbedder(BaseEmbedder):
     ) -> None:
         self.model_name = model_name
         self.device = device
-        self.torch_dtype_str = torch_dtype
+        self.torch_dtype = torch_dtype
         self.max_pages_per_batch = max_pages_per_batch
 
         # Resolve dtype string → torch dtype
@@ -134,7 +136,7 @@ class ColPaliEmbedder(BaseEmbedder):
             "max_batch=%d",
             self.model_name,
             self.device,
-            self.torch_dtype_str,
+            self.torch_dtype,
             self.max_pages_per_batch,
         )
 
@@ -163,19 +165,21 @@ class ColPaliEmbedder(BaseEmbedder):
             self.device = "cpu"
 
         try:
-            from colpali_engine.models import ColPali, ColPaliProcessor
-
             logger.info("Downloading / loading ColPali weights…")
-            self._model = ColPali.from_pretrained(
+            self._model = AutoModel.from_pretrained(
                 self.model_name,
                 torch_dtype=self._torch_dtype,
                 device_map=self.device,
+                cache_dir=HF_CACHE_DIR,
+                local_files_only=False,
             )
             self._model.eval()
-            logger.info("ColPali model loaded and set to eval mode.")
-
-            self._processor = ColPaliProcessor.from_pretrained(self.model_name)
-            logger.info("ColPali processor loaded.")
+            self._processor = AutoProcessor.from_pretrained(
+                self.model_name,
+                cache_dir=HF_CACHE_DIR,
+                local_files_only=False,
+            )
+            logger.info(f"ColPali model loaded from {HF_CACHE_DIR}")
 
             _log_vram("ColPali after load (expected ~2.5 GB)")
 

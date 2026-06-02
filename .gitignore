@@ -48,3 +48,9 @@ Thumbs.db
 
 # ChromaDB
 chroma.sqlite3
+
+# Kaggle credentials (NEVER commit this!)
+kaggle.json
+
+# Local cache directories
+.cache/

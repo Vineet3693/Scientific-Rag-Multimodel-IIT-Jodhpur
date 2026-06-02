@@ -188,7 +188,7 @@ class RAGGenerator:
     # query (main entry point)
     # -----------------------------------------------------------------
 
-    def query(self, question: str) -> RAGResult:
+    def query(self, question: str, status_callback: Optional[callable] = None) -> RAGResult:
         """Execute the full RAG pipeline for a user question.
 
         Runs the complete pipeline: encode → retrieve → fuse → build
@@ -200,6 +200,7 @@ class RAGGenerator:
 
         Args:
             question: The user's natural-language question.
+            status_callback: Optional callback to update status.
 
         Returns:
             An :class:`RAGResult` containing the answer, sources,
@@ -214,6 +215,9 @@ class RAGGenerator:
             raise ValueError("question must be a non-empty string.")
 
         logger.info("RAG query started: '%s'", question[:80])
+
+        if status_callback:
+            status_callback("colpali_encode", "Encoding query term with late-interaction ColPali vision model...", 20)
 
         # ----------------------------------------------------------
         # Step 1 & 2: Encode query with ColPali and SciNCL
@@ -231,6 +235,9 @@ class RAGGenerator:
         except Exception as exc:
             logger.error("ColPali query encoding failed: %s", exc)
 
+        if status_callback:
+            status_callback("scincl_encode", "Encoding query term with SciNCL scientific text model...", 35)
+
         # --- SciNCL encoding ---
         try:
             query_embedding_scincl = self._encode_scincl(question)
@@ -242,6 +249,9 @@ class RAGGenerator:
         # ----------------------------------------------------------
         # Step 3 & 4: Retrieval with fallback chains
         # ----------------------------------------------------------
+        if status_callback:
+            status_callback("retrieval", "Performing hybrid multi-vector & dense vector ANN retrieval...", 50)
+
         colpali_results: List[RetrievedDocument] = []
         scincl_results: List[RetrievedDocument] = []
 
@@ -262,6 +272,9 @@ class RAGGenerator:
         # ----------------------------------------------------------
         # Step 5: Score fusion with fallback weights
         # ----------------------------------------------------------
+        if status_callback:
+            status_callback("fusion", "Performing score fusion and ranking...", 65)
+
         fused_results = self._fuse_results(
             colpali_results, colpali_ok,
             scincl_results, scincl_ok,
@@ -278,6 +291,9 @@ class RAGGenerator:
         # ----------------------------------------------------------
         # Step 6: Build context
         # ----------------------------------------------------------
+        if status_callback:
+            status_callback("context", "Assembling scientific context and loading page images...", 75)
+
         context_text = self._build_context_text(fused_results)
         page_images = self._collect_page_images(fused_results)
         sources = self._extract_sources(fused_results)
@@ -298,10 +314,16 @@ class RAGGenerator:
                 self._max_retries + 1,
             )
 
+            if status_callback:
+                status_callback("qwen_generate", f"Loading Qwen2-VL visual-language model and generating fact-checked answer (attempt {attempt + 1})...", 85)
+
             # Step 7: Generate answer with Qwen2-VL
             answer, confidence = self._generate_answer(
                 question, context_text, page_images
             )
+
+            if status_callback:
+                status_callback("self_check", "Executing three-level self-check (Attribution, Faithfulness, Confidence)...", 95)
 
             # Step 8: Self-check
             check_result = self._checker.check(
@@ -792,7 +814,7 @@ class RAGGenerator:
             collection_name = self._retrieval_cfg.get("chroma_collection", "sci_text")
 
             client = chromadb.PersistentClient(path=str(chroma_dir))
-            collection = client.get_collection(name=collection_name)
+            collection = client.get_or_create_collection(name=collection_name)
 
             # Use ChromaDB's built-in keyword search
             query_words = re.findall(r"\w+", question.lower())
@@ -964,29 +986,48 @@ class RAGGenerator:
             generated text and *confidence* is a float in ``[0, 1]``.
         """
         try:
-            from transformers import (
-                AutoProcessor,
-                Qwen2VLForConditionalGeneration,
-                BitsAndBytesConfig,
-            )
+            from src.utils.model_cache import HF_CACHE_DIR
+            from transformers import AutoModelForCausalLM, AutoProcessor
 
             logger.info("Loading Qwen2-VL model: %s", self._qwen_model_name)
 
-            # Configure 4-bit quantization for VRAM efficiency.
-            quantization_config = BitsAndBytesConfig(
-                load_in_4bit=True,
-                bnb_4bit_quant_type="nf4",
-                bnb_4bit_compute_dtype=torch.float16,
-            )
+            # Determine device
+            _device = "cuda" if torch.cuda.is_available() else "cpu"
+            _dtype = torch.float16 if torch.cuda.is_available() else torch.float32
 
-            model = Qwen2VLForConditionalGeneration.from_pretrained(
+            # Try 4-bit quantization on GPU; fall back to full-precision on CPU
+            try:
+                from transformers import BitsAndBytesConfig
+                quantization_config = BitsAndBytesConfig(
+                    load_in_4bit=True,
+                    bnb_4bit_quant_type="nf4",
+                    bnb_4bit_compute_dtype=torch.float16,
+                ) if torch.cuda.is_available() else None
+            except ImportError:
+                quantization_config = None
+
+            model_kwargs = dict(
+                cache_dir=HF_CACHE_DIR,
+                local_files_only=False,
+                torch_dtype=_dtype,
+            )
+            if quantization_config and _device == "cuda":
+                model_kwargs["quantization_config"] = quantization_config
+                model_kwargs["device_map"] = "auto"
+            else:
+                model_kwargs["device_map"] = _device
+
+            model = AutoModelForCausalLM.from_pretrained(
                 self._qwen_model_name,
-                quantization_config=quantization_config,
-                device_map="auto",
+                **model_kwargs,
             )
             model.eval()
 
-            processor = AutoProcessor.from_pretrained(self._qwen_model_name)
+            processor = AutoProcessor.from_pretrained(
+                self._qwen_model_name,
+                cache_dir=HF_CACHE_DIR,
+                local_files_only=False,
+            )
 
             logger.info("Qwen2-VL loaded — generating answer.")
 
