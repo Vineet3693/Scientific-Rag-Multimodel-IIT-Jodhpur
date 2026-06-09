@@ -11,26 +11,26 @@ import subprocess, os, zipfile, time, json
 
 # ─── Step 1: Install packages ───
 print("=" * 55)
-print("  STEP 1: Installing packages...")
+print("  STEP 1: Installing packages (Skipped on HPC)...")
 print("=" * 55)
 
-subprocess.run([
-    "pip", "install", "-q",
-    "torchao>=0.16.0",
-    "colpali-engine",
-    "chromadb",
-    "sentence-transformers",
-    "accelerate",
-    "bitsandbytes",
-    "transformers",
-    "Pillow",
-    "pymupdf",
-], check=False)
+# subprocess.run([
+#     "pip", "install", "-q",
+#     "torchao>=0.16.0",
+#     "colpali-engine",
+#     "chromadb",
+#     "sentence-transformers",
+#     "accelerate",
+#     "bitsandbytes",
+#     "transformers",
+#     "Pillow",
+#     "pymupdf",
+# ], check=False)
 
-subprocess.run(
-    ["apt-get", "install", "-y", "-q", "poppler-utils"],
-    check=False
-)
+# subprocess.run(
+#     ["apt-get", "install", "-y", "-q", "poppler-utils"],
+#     check=False
+# )
 print("  ✅ Packages installed!")
 
 # ─── Step 2: Restore files ───
