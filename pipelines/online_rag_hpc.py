@@ -163,7 +163,7 @@ def embed_query_scincl(query: str) -> np.ndarray:
 
 # ─── STEP 3 : connect ChromaDB ───────────────────────────────────────────────
 log.info("[STEP 3] Connecting to ChromaDB ...")
-CHROMA_PATH = INDEX_DIR / "chroma_db"
+CHROMA_PATH = INDEX_DIR / "indices" / "chroma_index"
 log.info(f"  chroma path: {CHROMA_PATH}")
 
 try:
@@ -187,7 +187,7 @@ import json, pickle
 def load_pages_metadata() -> dict:
     """Try JSON then pickle; return {page_id: metadata_dict}."""
     for fname in ["pages_metadata.json", "pages.json", "metadata.json"]:
-        p = PAGES_DIR / fname
+        p = INDEX_DIR / "indices" / fname
         if p.exists():
             log.info(f"  loading metadata from {p}")
             with open(p) as f:
@@ -195,7 +195,7 @@ def load_pages_metadata() -> dict:
             log.info(f"  loaded {len(data)} page records")
             return data
     for fname in ["pages_metadata.pkl", "pages.pkl"]:
-        p = PAGES_DIR / fname
+        p = INDEX_DIR / "indices" / fname
         if p.exists():
             log.info(f"  loading metadata from {p}")
             with open(p, "rb") as f:
