@@ -157,8 +157,11 @@ print(f"  ✅ npy_index     : {len(npy_index)} files")
 
 print(f"\n{'='*55}")
 print(f"  ✅ ALL READY!")
-print(f"  GPU  : {torch.cuda.get_device_name(0)}")
-print(f"  VRAM : {torch.cuda.mem_get_info()[0]/1024**3:.1f} GB free")
+if torch.cuda.is_available():
+    print(f"  GPU  : {torch.cuda.get_device_name(0)}")
+    print(f"  VRAM : {torch.cuda.mem_get_info()[0]/1024**3:.1f} GB free")
+else:
+    print("  GPU  : None (CPU Mode)")
 print(f"{'='*55}")
 print("✅ RECOVERY CELL COMPLETE — Now run Cell 4 + 5 + 6!")
 
@@ -188,13 +191,15 @@ def colpali_retrieve(query, top_k=5):
     all pages → unload → return top_k results
     """
     print(f"  [ColPali] Loading model...")
-    t0 = torch.cuda.mem_get_info()[0] / 1024**3
+    t0 = torch.cuda.mem_get_info()[0] / 1024**3 if torch.cuda.is_available() else 0
 
     # Load
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    dtype = torch.float16 if torch.cuda.is_available() else torch.float32
     model = ColPali.from_pretrained(
         CONFIG["colpali_model"],
-        torch_dtype=torch.float16,
-        device_map="cuda",
+        torch_dtype=dtype,
+        device_map=device,
         low_cpu_mem_usage=True,
     )
     processor = ColPaliProcessor.from_pretrained(
@@ -202,8 +207,11 @@ def colpali_retrieve(query, top_k=5):
     )
     model.eval()
 
-    t1 = torch.cuda.mem_get_info()[0] / 1024**3
-    print(f"  [ColPali] Loaded! VRAM used: {t0-t1:.1f} GB")
+    t1 = torch.cuda.mem_get_info()[0] / 1024**3 if torch.cuda.is_available() else 0
+    if torch.cuda.is_available():
+        print(f"  [ColPali] Loaded! VRAM used: {t0-t1:.1f} GB")
+    else:
+        print("  [ColPali] Loaded in CPU mode!")
 
     # Encode query
     batch = processor.process_queries(queries=[query])
@@ -267,9 +275,10 @@ def scincl_retrieve(query, top_k=5):
     print(f"  [SciNCL] Loading model...")
 
     # Load
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     model = SentenceTransformer(
         CONFIG["scincl_model"],
-        device="cuda"
+        device=device
     )
 
     # Encode
@@ -439,13 +448,15 @@ def generate_answer(query, retrieved_pages):
     """
 
     print(f"  [Qwen2-VL] Loading model...")
-    t0 = torch.cuda.mem_get_info()[0] / 1024**3
+    t0 = torch.cuda.mem_get_info()[0] / 1024**3 if torch.cuda.is_available() else 0
 
     # ─── Load Qwen2-VL ───
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    dtype = torch.float16 if torch.cuda.is_available() else torch.float32
     qwen_model = Qwen2VLForConditionalGeneration.from_pretrained(
         CONFIG["qwen_model"],
-        torch_dtype=torch.float16,
-        device_map="cuda",
+        torch_dtype=dtype,
+        device_map=device,
         low_cpu_mem_usage=True,
     )
     qwen_processor = AutoProcessor.from_pretrained(
@@ -453,7 +464,7 @@ def generate_answer(query, retrieved_pages):
     )
     qwen_model.eval()
 
-    t1 = torch.cuda.mem_get_info()[0] / 1024**3
+    t1 = torch.cuda.mem_get_info()[0] / 1024**3 if torch.cuda.is_available() else 0
     print(f"  [Qwen2-VL] Loaded! VRAM used: {t0-t1:.1f} GB")
 
     # ─── Build context from retrieved pages ───
@@ -562,9 +573,12 @@ Answer:"""
         print(f"  [Qwen2-VL] Unloading...")
         del qwen_model, qwen_processor
         gc.collect()
-        torch.cuda.empty_cache()
-        freed = torch.cuda.mem_get_info()[0] / 1024**3
-        print(f"  [Qwen2-VL] Unloaded! VRAM free: {freed:.1f} GB")
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            freed = torch.cuda.mem_get_info()[0] / 1024**3
+            print(f"  [Qwen2-VL] Unloaded! VRAM free: {freed:.1f} GB")
+        else:
+            print("  [Qwen2-VL] Unloaded!")
 
     return answer
 
@@ -646,24 +660,24 @@ print("  CELL 6: FIRST RAG TEST")
 print("=" * 55)
 
 # ─── Run first query ───
-result = rag_query("what is Vit transformer ")
+# result = rag_query("what is Vit transformer ")
 
 # ─── Pretty print ───
-print(f"\n{'═'*55}")
-print(f"  FINAL RESULT SUMMARY")
-print(f"{'═'*55}")
-print(f"  Query      : {result['query']}")
-print(f"  Total time : {result['total_time']}s")
-print(f"\n  Answer:")
-print(f"  {result['answer']}")
-print(f"\n  Sources used:")
-for i, s in enumerate(result['sources']):
-    print(f"  [{i+1}] {s['paper']}")
-    print(f"       Page {s['page']} | "
-          f"https://arxiv.org/abs/{s['arxiv_id']} | "
-          f"score: {s['fused_score']}")
-print(f"{'═'*55}")
-print("✅ CELL 6 COMPLETE!")
+# print(f"\n{'═'*55}")
+# print(f"  FINAL RESULT SUMMARY")
+# print(f"{'═'*55}")
+# print(f"  Query      : {result['query']}")
+# print(f"  Total time : {result['total_time']}s")
+# print(f"\n  Answer:")
+# print(f"  {result['answer']}")
+# print(f"\n  Sources used:")
+# for i, s in enumerate(result['sources']):
+#     print(f"  [{i+1}] {s['paper']}")
+#     print(f"       Page {s['page']} | "
+#           f"https://arxiv.org/abs/{s['arxiv_id']} | "
+#           f"score: {s['fused_score']}")
+# print(f"{'═'*55}")
+print("✅ CELL 6 COMPLETE (Skipped auto test)!")
 
 # ═══════════════════════════════════════════════════════════════
 # CELL 7: Domain Guard
@@ -766,10 +780,12 @@ def generate_strict(query, retrieved_pages):
     """
     print(f"  [Qwen2-VL] Loading...")
 
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    dtype = torch.float16 if torch.cuda.is_available() else torch.float32
     qwen_model = Qwen2VLForConditionalGeneration.from_pretrained(
         CONFIG["qwen_model"],
-        torch_dtype=torch.float16,
-        device_map="cuda",
+        torch_dtype=dtype,
+        device_map=device,
         low_cpu_mem_usage=True,
     )
     qwen_processor = AutoProcessor.from_pretrained(CONFIG["qwen_model"])
@@ -884,9 +900,12 @@ ANSWER (from papers only — cite paper + page for every point):"""
     finally:
         del qwen_model, qwen_processor
         gc.collect()
-        torch.cuda.empty_cache()
-        free = torch.cuda.mem_get_info()[0] / 1024**3
-        print(f"  [Qwen2-VL] Unloaded! VRAM free: {free:.1f} GB")
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            free = torch.cuda.mem_get_info()[0] / 1024**3
+            print(f"  [Qwen2-VL] Unloaded! VRAM free: {free:.1f} GB")
+        else:
+            print("  [Qwen2-VL] Unloaded!")
 
     return {
         "answer"        : answer,
