@@ -54,3 +54,7 @@ kaggle.json
 
 # Local cache directories
 .cache/
+
+# Graphify knowledge graph output (regenerated via `graphify update .`)
+graphify-out/
+.agents/
