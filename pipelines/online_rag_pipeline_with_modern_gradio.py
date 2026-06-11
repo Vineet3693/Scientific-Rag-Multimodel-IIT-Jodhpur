@@ -48,32 +48,50 @@ dirs = [
 for d in dirs:
     os.makedirs(d, exist_ok=True)
 
-idx_zip   = "/content/sci-rag-indices.zip"
-pages_zip = "/content/sci-rag-pages.zip"
+# ── Zip paths: Colab = /content/, HPC = RAG_BASE_DIR/data/ ──
+_base = os.getenv("RAG_BASE_DIR", "/content")
+idx_zip   = os.path.join(_base, "data", "sci-rag-indices.zip")
+pages_zip = os.path.join(_base, "data", "sci-rag-pages.zip")
+# Colab fallback paths
+if not os.path.exists(idx_zip):
+    idx_zip   = "/content/sci-rag-indices.zip"
+if not os.path.exists(pages_zip):
+    pages_zip = "/content/sci-rag-pages.zip"
 
-if os.path.exists(idx_zip):
+# Check if data already extracted (HPC has symlinks — skip extraction)
+_indices_ready = os.path.exists("data/indices/page_metadata.json") or \
+                 os.path.exists("data/indices/chroma_index")
+_pages_ready   = os.path.exists("data/parsed/pages") and \
+                 any(f.endswith(".png") for f in os.listdir("data/parsed/pages") if os.path.isfile(os.path.join("data/parsed/pages", f))) \
+                 if os.path.isdir("data/parsed/pages") else False
+
+if _indices_ready:
+    print("  ✅ Indices already present (skipping zip extraction)")
+elif os.path.exists(idx_zip):
     try:
         with zipfile.ZipFile(idx_zip, "r") as zf:
             zf.extractall("data")
-        print(f"  ✅ Indices restored!")
+        print(f"  ✅ Indices restored from {idx_zip}!")
     except zipfile.BadZipFile:
-        print(f"  ❌ sci-rag-indices.zip is corrupted or not a valid zip file! Please re-upload it.")
+        print(f"  ❌ sci-rag-indices.zip is corrupted!")
     except Exception as e:
-        print(f"  ❌ An unexpected error occurred while extracting sci-rag-indices.zip: {e}")
+        print(f"  ❌ Error extracting sci-rag-indices.zip: {e}")
 else:
-    print("  ❌ sci-rag-indices.zip missing!")
+    print(f"  ❌ sci-rag-indices.zip not found at {idx_zip}")
 
-if os.path.exists(pages_zip):
+if _pages_ready:
+    print("  ✅ Pages already present (skipping zip extraction)")
+elif os.path.exists(pages_zip):
     try:
         with zipfile.ZipFile(pages_zip, "r") as zf:
             zf.extractall("data")
-        print(f"  ✅ Pages restored!")
+        print(f"  ✅ Pages restored from {pages_zip}!")
     except zipfile.BadZipFile:
-        print(f"  ❌ sci-rag-pages.zip is corrupted or not a valid zip file! Please re-upload it.")
+        print(f"  ❌ sci-rag-pages.zip is corrupted!")
     except Exception as e:
-        print(f"  ❌ An unexpected error occurred while extracting sci-rag-pages.zip: {e}")
+        print(f"  ❌ Error extracting sci-rag-pages.zip: {e}")
 else:
-    print("  ❌ sci-rag-pages.zip missing!")
+    print(f"  ❌ sci-rag-pages.zip not found at {pages_zip}")
 
 # ─── Step 3: Verify packages ───
 print("\n" + "=" * 55)
@@ -159,7 +177,8 @@ print(f"\n{'='*55}")
 print(f"  ✅ ALL READY!")
 if torch.cuda.is_available():
     print(f"  GPU  : {torch.cuda.get_device_name(0)}")
-    print(f"  VRAM : {torch.cuda.mem_get_info()[0]/1024**3:.1f} GB free")
+    free_vram = torch.cuda.mem_get_info()[0]/1024**3 if torch.cuda.is_available() else 0
+    print(f"  VRAM : {free_vram:.1f} GB free")
 else:
     print("  GPU  : None (CPU Mode)")
 print(f"{'='*55}")
@@ -575,7 +594,7 @@ Answer:"""
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
-            freed = torch.cuda.mem_get_info()[0] / 1024**3
+            freed = torch.cuda.mem_get_info()[0] / 1024**3 if torch.cuda.is_available() else 0
             print(f"  [Qwen2-VL] Unloaded! VRAM free: {freed:.1f} GB")
         else:
             print("  [Qwen2-VL] Unloaded!")
@@ -791,7 +810,7 @@ def generate_strict(query, retrieved_pages):
     qwen_processor = AutoProcessor.from_pretrained(CONFIG["qwen_model"])
     qwen_model.eval()
 
-    free = torch.cuda.mem_get_info()[0] / 1024**3
+    free = torch.cuda.mem_get_info()[0] / 1024**3 if torch.cuda.is_available() else 0
     print(f"  [Qwen2-VL] Loaded! VRAM free: {free:.1f} GB")
 
     # ─── Build context + sources ───
@@ -902,7 +921,7 @@ ANSWER (from papers only — cite paper + page for every point):"""
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
-            free = torch.cuda.mem_get_info()[0] / 1024**3
+            free = torch.cuda.mem_get_info()[0] / 1024**3 if torch.cuda.is_available() else 0
             print(f"  [Qwen2-VL] Unloaded! VRAM free: {free:.1f} GB")
         else:
             print("  [Qwen2-VL] Unloaded!")
