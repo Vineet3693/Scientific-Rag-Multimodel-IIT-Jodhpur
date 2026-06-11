@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH --job-name=rag_gradio
-#SBATCH --output=/scratch/data/divyasaxena_rs/Vineet_internship/logs/rag_gradio_%j.out
-#SBATCH --error=/scratch/data/divyasaxena_rs/Vineet_internship/logs/rag_gradio_%j.err
+#SBATCH --job-name=rag_online
+#SBATCH --output=/scratch/data/divyasaxena_rs/Vineet_internship/logs/rag_online_%j.out
+#SBATCH --error=/scratch/data/divyasaxena_rs/Vineet_internship/logs/rag_online_%j.err
 #SBATCH --time=08:00:00
 #SBATCH --partition=dgx
 #SBATCH --gres=gpu:1
@@ -54,14 +54,15 @@ export TRANSFORMERS_CACHE="${CACHE_DIR}/hub"
 export HF_DATASETS_CACHE="${CACHE_DIR}/datasets"
 export TOKENIZERS_PARALLELISM=false
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-export GRADIO_PORT=${PORT}
+export STREAMLIT_PORT=${PORT}
+export RAG_CONFIG_PATH="${WORK_DIR}/Scientific-Multimodal-RAG/configs/config.yaml"
 
 # ── Change to project directory ──
 cd "${WORK_DIR}"
 
 echo ""
 echo "════════════════════════════════════════════════════════════"
-echo "  Starting Online RAG Gradio on port ${PORT}"
+echo "  Starting Scientific RAG — Streamlit Q&A App on port ${PORT}"
 echo ""
 echo "  On YOUR LAPTOP — open a new terminal and run:"
 echo "  ssh -L ${PORT}:localhost:${PORT} divyasaxena_rs@172.25.0.81"
@@ -70,9 +71,15 @@ echo "  Then open: http://localhost:${PORT}"
 echo "════════════════════════════════════════════════════════════"
 echo ""
 
-python3 -u Scientific-Multimodal-RAG/pipelines/online_rag_pipeline_with_modern_gradio.py
+cd Scientific-Multimodal-RAG
+python3 -u -m streamlit run app/streamlit_app.py \
+  --server.port "${PORT}" \
+  --server.address "0.0.0.0" \
+  --server.headless true \
+  --browser.gatherUsageStats false
 
 echo ""
 echo "════════════════════════════════════════════════════════════"
 echo "  JOB DONE: $(date)"
 echo "════════════════════════════════════════════════════════════"
+
