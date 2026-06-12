@@ -7,6 +7,10 @@ Original file is located at
     https://colab.research.google.com/drive/1Mwvt8d8EXQEiUIGMytOMak5WxmFTwajg
 """
 
+import torch
+if not hasattr(torch, "float8_e8m0fnu"):
+    setattr(torch, "float8_e8m0fnu", torch.float32)
+
 import subprocess, os, zipfile, time, json
 
 # ─── Step 1: Install packages ───
