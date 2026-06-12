@@ -1,4 +1,4 @@
-"""
+ """
 Scientific Multimodal RAG — Streamlit Q&A Application
 ======================================================
 
@@ -463,34 +463,33 @@ def main() -> None:
     # ── Session state ──
     if "history" not in st.session_state:
         st.session_state.history = []
+    if "query_text" not in st.session_state:
+        st.session_state.query_text = ""
 
     # ── Query input ──
     col_input, col_btn = st.columns([5, 1])
 
     with col_input:
         # Pre-fill with selected example from sidebar
-        default_q = sidebar.get("selected_example") or ""
         if sidebar.get("selected_example"):
-            st.session_state["query_text"] = sidebar["selected_example"]
+            st.session_state.query_text = sidebar["selected_example"]
 
         question = st.text_area(
             "Ask a question about the research papers",
             key="query_text",
-            value=default_q if default_q else st.session_state.get("query_text", ""),
             placeholder="e.g. How does patch embedding work in Vision Transformer?",
             height=80,
             label_visibility="collapsed",
         )
 
+    def clear_callback():
+        st.session_state.history = []
+        st.session_state.query_text = ""
+
     with col_btn:
         st.markdown("<div style='height: 20px'></div>", unsafe_allow_html=True)
         ask_clicked = st.button("🔍 Ask", use_container_width=True)
-        clear_clicked = st.button("🗑️ Clear", use_container_width=True)
-
-    if clear_clicked:
-        st.session_state.history = []
-        st.session_state.query_text = ""
-        st.rerun()
+        st.button("🗑️ Clear", use_container_width=True, on_click=clear_callback)
 
     # ── Run query ──
     if ask_clicked and question.strip():

@@ -53,34 +53,10 @@ nvidia-smi --query-gpu=name,memory.total,memory.free --format=csv,noheader
 python3 -c "import torch; print('CUDA:', torch.cuda.is_available(), '| GPU:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'None')"
 
 # ──────────────────────────────────────────────────────────────
-# STEP 1: Download arXiv PDFs
+# Run Unified Offline Indexing Pipeline
 # ──────────────────────────────────────────────────────────────
-echo ""; echo "=== STEP 1/4: Downloading arXiv PDFs ==="
-python3 scripts/hpc_step1_download.py
-
-# ──────────────────────────────────────────────────────────────
-# STEP 2: Parse PDFs
-# ──────────────────────────────────────────────────────────────
-echo ""; echo "=== STEP 2/4: Parsing PDFs ==="
-python3 scripts/hpc_step2_parse.py
-
-# ──────────────────────────────────────────────────────────────
-# STEP 3: ColPali Embedding
-# ──────────────────────────────────────────────────────────────
-echo ""; echo "=== STEP 3/4: ColPali Embedding (GPU) ==="
-python3 scripts/hpc_step3_colpali.py
-
-# ──────────────────────────────────────────────────────────────
-# STEP 4: SciNCL → ChromaDB
-# ──────────────────────────────────────────────────────────────
-echo ""; echo "=== STEP 4/4: SciNCL → ChromaDB ==="
-python3 scripts/hpc_step4_scincl.py
-
-# Zip results
-echo ""; echo "=== Zipping results ==="
-zip -r "${WORK_DIR}/sci-rag-indices.zip" data/indices/ -q
-zip -r "${WORK_DIR}/sci-rag-pages.zip"   data/parsed/  -q
-echo "Zips saved to ${WORK_DIR}/"
+echo ""; echo "=== RUNNING MODULAR OFFLINE INDEXING PIPELINE ==="
+python3 main.py --mode offline
 
 echo ""; echo "=== JOB DONE: $(date) | Duration: ${SECONDS}s ==="
 echo "Download: scp divyasaxena_rs@172.25.0.81:${WORK_DIR}/sci-rag-indices.zip ."

@@ -5,8 +5,8 @@
 #SBATCH --time=08:00:00
 #SBATCH --partition=dgx
 #SBATCH --gres=gpu:1
-#SBATCH --cpus-per-task=8
-#SBATCH --mem-per-cpu=4G
+#SBATCH --cpus-per-task=2
+#SBATCH --mem-per-cpu=24G
 
 # ═══════════════════════════════════════════════════════════════
 #  IITJ HPC — Online RAG Gradio Pipeline
@@ -34,7 +34,10 @@ echo "  START: $(date)"
 echo "════════════════════════════════════════════════════════════"
 
 # ── Load modules ──
-module purge
+if [ -f /etc/profile.d/modules.sh ]; then
+    source /etc/profile.d/modules.sh
+fi
+module purge 2>/dev/null || true
 module load python/3.10 2>/dev/null || module load python3 2>/dev/null || true
 module load cuda/12.1   2>/dev/null || module load cuda   2>/dev/null || true
 
@@ -55,7 +58,7 @@ export HF_DATASETS_CACHE="${CACHE_DIR}/datasets"
 export TOKENIZERS_PARALLELISM=false
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export STREAMLIT_PORT=${PORT}
-export RAG_CONFIG_PATH="${WORK_DIR}/Scientific-Multimodal-RAG/configs/config.yaml"
+export RAG_CONFIG_PATH="${WORK_DIR}/configs/config.yaml"
 
 # ── Change to project directory ──
 cd "${WORK_DIR}"
@@ -71,7 +74,6 @@ echo "  Then open: http://localhost:${PORT}"
 echo "════════════════════════════════════════════════════════════"
 echo ""
 
-cd Scientific-Multimodal-RAG
 python3 -u -m streamlit run app/streamlit_app.py \
   --server.port "${PORT}" \
   --server.address "0.0.0.0" \

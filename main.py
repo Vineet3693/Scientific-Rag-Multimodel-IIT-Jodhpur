@@ -97,7 +97,10 @@ def run_online(cfg: dict) -> None:
     """
     app_cfg = cfg.get("app", {})
     port    = int(os.getenv("STREAMLIT_PORT", app_cfg.get("streamlit_port", 8501)))
-    host    = app_cfg.get("server_name", "0.0.0.0")
+
+    # On HPC bind to 0.0.0.0 (for port-forwarding); locally use localhost
+    is_hpc  = bool(os.getenv("RAG_BASE_DIR"))
+    host    = "0.0.0.0" if is_hpc else "localhost"
 
     # Verify indices exist before launching
     paths = cfg.get("paths", {})
@@ -121,8 +124,9 @@ def run_online(cfg: dict) -> None:
     print(f"  ColPali : {len(npy_files)} page embeddings")
     print(f"  Port    : {port}")
     print("═" * 60)
-    print(f"\n  Launching Streamlit on http://{host}:{port}")
-    print(f"  (Port-forward on HPC: ssh -L {port}:localhost:{port} divyasaxena_rs@172.25.0.81)")
+    print(f"\n  ✅ Open in browser → http://localhost:{port}")
+    if is_hpc:
+        print(f"  (Port-forward: ssh -L {port}:localhost:{port} divyasaxena_rs@172.25.0.81)")
     print()
 
     # Pass config path to the Streamlit app via env

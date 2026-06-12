@@ -215,12 +215,15 @@ def colpali_retrieve(query, top_k=5):
     # Load
     device = "cuda" if torch.cuda.is_available() else "cpu"
     dtype = torch.float16 if torch.cuda.is_available() else torch.float32
+    device_map = "cuda" if torch.cuda.is_available() else None
     model = ColPali.from_pretrained(
         CONFIG["colpali_model"],
         torch_dtype=dtype,
-        device_map=device,
+        device_map=device_map,
         low_cpu_mem_usage=True,
     )
+    if not torch.cuda.is_available():
+        model = model.to("cpu")
     processor = ColPaliProcessor.from_pretrained(
         CONFIG["colpali_model"]
     )
@@ -472,12 +475,15 @@ def generate_answer(query, retrieved_pages):
     # ─── Load Qwen2-VL ───
     device = "cuda" if torch.cuda.is_available() else "cpu"
     dtype = torch.float16 if torch.cuda.is_available() else torch.float32
+    device_map = "auto" if torch.cuda.is_available() else None
     qwen_model = Qwen2VLForConditionalGeneration.from_pretrained(
         CONFIG["qwen_model"],
         torch_dtype=dtype,
-        device_map=device,
+        device_map=device_map,
         low_cpu_mem_usage=True,
     )
+    if not torch.cuda.is_available():
+        qwen_model = qwen_model.to("cpu")
     qwen_processor = AutoProcessor.from_pretrained(
         CONFIG["qwen_model"]
     )
@@ -801,12 +807,15 @@ def generate_strict(query, retrieved_pages):
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     dtype = torch.float16 if torch.cuda.is_available() else torch.float32
+    device_map = "auto" if torch.cuda.is_available() else None
     qwen_model = Qwen2VLForConditionalGeneration.from_pretrained(
         CONFIG["qwen_model"],
         torch_dtype=dtype,
-        device_map=device,
+        device_map=device_map,
         low_cpu_mem_usage=True,
     )
+    if not torch.cuda.is_available():
+        qwen_model = qwen_model.to("cpu")
     qwen_processor = AutoProcessor.from_pretrained(CONFIG["qwen_model"])
     qwen_model.eval()
 

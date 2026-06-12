@@ -1,17 +1,9 @@
 """
-Context Package — Prompt Assembly and Template Management.
-
-Re-exports the core classes so that downstream modules can import
-from the package root::
-
-    from src.context import ContextObject, ContextBuilder, PromptTemplates
+Context Package — PDF Parsing and Document processing.
 """
 
-from src.context.context_builder import ContextBuilder, ContextObject
-from src.context.prompt_templates import PromptTemplates
+from src.context.pdf_parser import PDFParser
 
 __all__ = [
-    "ContextObject",
-    "ContextBuilder",
-    "PromptTemplates",
+    "PDFParser",
 ]

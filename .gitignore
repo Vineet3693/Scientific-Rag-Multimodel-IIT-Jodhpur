@@ -9,7 +9,7 @@ data/
 outputs/
 
 # Model caches
-models/
+/models/
 *.bin
 *.safetensors
 *.gguf

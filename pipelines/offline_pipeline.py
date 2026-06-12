@@ -1,345 +1,277 @@
 """
-Offline Pipeline — Ingestion Orchestrator
-==========================================
-
-Runs the 4-step offline pipeline using src/ modules:
-  1. Download arXiv PDFs  (src.data.arxiv_dataset)
-  2. Parse PDFs           (src.data.pdf_parser)
-  3. ColPali embedding    (src.embeddings.colpali_embedder)
-  4. SciNCL → ChromaDB   (src.embeddings.scincl_embedder)
+Offline Indexing Pipeline Orchestrator
+======================================
+Coordinates downloading, parsing, embedding, and indexing of research papers.
 """
 
 from __future__ import annotations
 
-import gc
-import json
 import os
+import json
 import time
-from pathlib import Path
-from typing import Any, Dict
-
-import torch
-
+import requests
+from src.utils.helpers import clean_vram, ensure_directories, create_zip_archive
+from src.models.loader import load_colpali, load_scincl
+from src.context.pdf_parser import PDFParser
+from src.embeddings.colpali_embedder import ColPaliEmbedder
+from src.embeddings.scincl_embedder import SciNCLEmbedder
 
 class OfflinePipeline:
-    """End-to-end offline ingestion pipeline.
-
-    Args:
-        cfg: Loaded YAML config dict (from main.py).
-    """
+    """Orchestrates end-to-end paper ingestion and indexing."""
 
     def __init__(self, cfg: dict) -> None:
-        self.cfg     = cfg
-        self.paths   = cfg.get("paths", {})
-        self.papers  = cfg.get("papers", {})
-        self.models  = cfg.get("models", {})
+        self.cfg = cfg
+        self.paths = cfg.get("paths", {})
+        self.papers = cfg.get("papers", {})
         self.parsing = cfg.get("parsing", {})
+        self.retrieval = cfg.get("retrieval", {})
 
-        self.raw_dir      = self.paths.get("raw",          "data/raw")
-        self.pages_dir    = self.paths.get("pages",        "data/parsed/pages")
-        self.markdown_dir = self.paths.get("markdown",     "data/parsed/markdown")
-        self.npy_dir      = self.paths.get("multivectors", "data/indices/multivectors")
-        self.chroma_dir   = self.paths.get("chroma_index", "data/indices/chroma_index")
-        self.indices_dir  = self.paths.get("indices",      "data/indices")
+        # Resolve paths with RAG_BASE_DIR override on HPC
+        self.base = os.getenv("RAG_BASE_DIR", "")
+        
+        # Build path dictionary
+        self.resolved_paths = {}
+        for name, path in self.paths.items():
+            self.resolved_paths[name] = os.path.join(self.base, path) if self.base else path
 
-        # Ensure all dirs exist
-        for d in [self.raw_dir, self.pages_dir, self.markdown_dir,
-                  self.npy_dir, self.chroma_dir]:
-            os.makedirs(d, exist_ok=True)
+    def run(self) -> bool:
+        """Executes the complete offline ingestion and indexing pipeline."""
+        print("\n" + "=" * 60)
+        print("  STARTING OFFLINE PIPELINE")
+        print("=" * 60)
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # run — full pipeline
-    # ─────────────────────────────────────────────────────────────────────────
+        # 1. Setup Directories
+        ensure_directories(self.resolved_paths)
 
-    def run(self) -> None:
-        """Execute all 4 offline steps sequentially."""
-        t0 = time.time()
+        # 2. Download PDFs
+        downloaded_papers = self._download_papers()
+        if not downloaded_papers:
+            print("  ❌ No papers downloaded or verified. Exiting.")
+            return False
 
-        print("  Step 1/4: Downloading PDFs ...")
-        doc_results = self.step1_download()
+        # 3. Parse PDFs
+        doc_mapping, page_metadata = self._parse_papers(downloaded_papers)
+        if not page_metadata:
+            print("  ❌ No pages parsed. Exiting.")
+            return False
 
-        print("\n  Step 2/4: Parsing PDFs ...")
-        page_metadata, doc_mapping = self.step2_parse(doc_results)
+        # 4. Generate ColPali Visual Embeddings
+        self._generate_colpali_embeddings(page_metadata)
 
-        print("\n  Step 3/4: ColPali visual embedding ...")
-        self.step3_colpali(page_metadata)
+        # 5. Generate SciNCL Text Embeddings & Store in ChromaDB
+        self._generate_scincl_embeddings(page_metadata)
 
-        print("\n  Step 4/4: SciNCL text embedding → ChromaDB ...")
-        self.step4_scincl(page_metadata)
-
-        elapsed = time.time() - t0
+        # 6. Save Summary Statistics
         self._save_summary(doc_mapping, page_metadata)
 
-        print(f"\n  ✅ ALL STEPS DONE in {elapsed/60:.1f} min")
-        print(f"  Papers  : {len(doc_mapping)}")
-        print(f"  Pages   : {len(page_metadata)}")
-        print(f"  ColPali : {len(list(Path(self.npy_dir).glob('*.npy')))} .npy files")
+        # 7. Create Zip Archives
+        self._create_zip_archives()
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # Step 1: Download
-    # ─────────────────────────────────────────────────────────────────────────
+        print("\n" + "=" * 60)
+        print("  ✅ OFFLINE PIPELINE EXECUTION COMPLETED SUCCESSFULLY!")
+        print("=" * 60)
+        return True
 
-    def step1_download(self) -> list:
-        """Download arXiv PDFs using src.data.arxiv_dataset."""
-        from src.data.arxiv_dataset import ArxivDataset
+    def _download_papers(self) -> list[dict]:
+        """Downloads PDFs from arXiv to raw folder."""
+        raw_dir = self.resolved_paths["raw"]
+        download_results = []
 
-        dataset   = ArxivDataset(output_dir=self.raw_dir)
-        results   = []
-        arxiv_ids = list(self.papers.keys())
-
-        print(f"  Downloading {len(arxiv_ids)} papers ...")
-
-        for i, arxiv_id in enumerate(arxiv_ids):
-            title   = self.papers[arxiv_id]
-            pdf_path = os.path.join(self.raw_dir, f"{arxiv_id}.pdf")
-
-            if os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 10_000:
-                size_mb = os.path.getsize(pdf_path) / 1e6
-                print(f"  [{i+1:2d}/{len(arxiv_ids)}] SKIP (exists): {arxiv_id} ({size_mb:.1f} MB)")
-                results.append({"arxiv_id": arxiv_id, "title": title,
-                                 "status": "exists", "pdf_path": pdf_path})
+        print(f"\n[Step 1/6] Downloading {len(self.papers)} arXiv PDFs...")
+        for i, (arxiv_id, title) in enumerate(self.papers.items()):
+            pdf_path = os.path.join(raw_dir, f"{arxiv_id}.pdf")
+            
+            # Skip if already exists
+            if os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 10000:
+                print(f"  [{i+1:2d}/{len(self.papers)}] Skip (exists): {arxiv_id}")
+                download_results.append({
+                    "arxiv_id": arxiv_id, "title": title,
+                    "status": "exists", "pdf_path": pdf_path
+                })
                 continue
 
+            url = f"https://arxiv.org/pdf/{arxiv_id}.pdf"
+            print(f"  [{i+1:2d}/{len(self.papers)}] Downloading: {arxiv_id}...")
             try:
-                result = dataset.download(arxiv_id, title)
-                results.append(result)
-                status = "✅" if result.get("status") == "success" else "❌"
-                print(f"  [{i+1:2d}/{len(arxiv_ids)}] {status} {arxiv_id}")
+                r = requests.get(url, timeout=120, headers={"User-Agent": "Mozilla/5.0"})
+                if r.status_code == 200 and len(r.content) > 10000:
+                    with open(pdf_path, "wb") as f:
+                        f.write(r.content)
+                    print(f"           ✅ Saved ({len(r.content)/1e6:.1f} MB)")
+                    download_results.append({
+                        "arxiv_id": arxiv_id, "title": title,
+                        "status": "success", "pdf_path": pdf_path
+                    })
+                else:
+                    print(f"           ❌ HTTP {r.status_code} or small size")
             except Exception as e:
-                print(f"  [{i+1:2d}/{len(arxiv_ids)}] ❌ {arxiv_id}: {e}")
-                results.append({"arxiv_id": arxiv_id, "title": title,
-                                 "status": "failed", "error": str(e)})
+                print(f"           ❌ Download failed: {e}")
+            
+            # Rate limit politeness
+            time.sleep(3)
 
-        success = sum(1 for r in results if r.get("status") in ("success", "exists"))
-        print(f"\n  Downloads: {success}/{len(arxiv_ids)} successful")
+        # Save logs
+        with open(os.path.join(self.resolved_paths["indices"], "download_results.json"), "w") as f:
+            json.dump(download_results, f, indent=2)
 
-        # Save manifest
-        with open(os.path.join(self.indices_dir, "download_results.json"), "w") as f:
-            json.dump(results, f, indent=2)
+        return [d for d in download_results if d["status"] in ["success", "exists"]]
 
-        return results
-
-    # ─────────────────────────────────────────────────────────────────────────
-    # Step 2: Parse
-    # ─────────────────────────────────────────────────────────────────────────
-
-    def step2_parse(self, download_results: list):
-        """Parse PDFs using src.data.pdf_parser."""
-        from src.data.pdf_parser import PDFParser
-
-        dpi    = self.parsing.get("dpi", 200)
-        parser = PDFParser(
-            pages_dir=self.pages_dir,
-            markdown_dir=self.markdown_dir,
-            dpi=dpi,
-        )
-
-        successful = [d for d in download_results if d.get("status") in ("success", "exists")]
-        print(f"  Parsing {len(successful)} PDFs (DPI={dpi}) ...")
-
-        doc_mapping   = {}
+    def _parse_papers(self, downloaded_list: list[dict]) -> tuple[dict, dict]:
+        """Parses PDFs into texts and high-resolution page images."""
+        print(f"\n[Step 2/6] Parsing {len(downloaded_list)} PDFs (PyMuPDF + pdf2image)...")
+        doc_mapping = {}
         page_metadata = {}
-        total_pages   = 0
+        dpi = self.parsing.get("dpi", 200)
 
-        for idx, dl in enumerate(successful):
+        for i, dl in enumerate(downloaded_list):
             arxiv_id = dl["arxiv_id"]
-            title    = self.papers.get(arxiv_id, arxiv_id)
-            pdf_path = dl.get("pdf_path", os.path.join(self.raw_dir, f"{arxiv_id}.pdf"))
+            title = dl["title"]
+            pdf_path = dl["pdf_path"]
 
-            if not os.path.exists(pdf_path):
-                print(f"  [{idx+1:2d}] SKIP (no PDF): {arxiv_id}")
-                continue
+            print(f"  [{i+1:2d}/{len(downloaded_list)}] Parsing: {arxiv_id}...")
+            doc_info, page_chunk = PDFParser.build_metadata(pdf_path, arxiv_id, title, dpi, self.resolved_paths)
+            
+            doc_mapping[arxiv_id] = doc_info
+            page_metadata.update(page_chunk)
+            print(f"           ✅ Extracted {doc_info['num_pages']} pages")
 
-            try:
-                result = parser.parse(arxiv_id=arxiv_id, title=title, pdf_path=pdf_path)
-                doc_mapping[arxiv_id] = result
-                for page_key, meta in result.get("pages", {}).items():
-                    page_metadata[page_key] = meta
-                total_pages += result.get("num_pages", 0)
-                print(f"  [{idx+1:2d}/{len(successful)}] ✅ {arxiv_id} — {result.get('num_pages',0)} pages")
-            except Exception as e:
-                print(f"  [{idx+1:2d}/{len(successful)}] ❌ {arxiv_id}: {e}")
-
-        # Save metadata files
-        with open(os.path.join(self.indices_dir, "doc_mapping.json"), "w", encoding="utf-8") as f:
+        # Save metadata
+        with open(os.path.join(self.resolved_paths["indices"], "doc_mapping.json"), "w", encoding="utf-8") as f:
             json.dump(doc_mapping, f, indent=2, ensure_ascii=False)
-
-        with open(os.path.join(self.indices_dir, "page_metadata.json"), "w", encoding="utf-8") as f:
+        with open(os.path.join(self.resolved_paths["indices"], "page_metadata.json"), "w", encoding="utf-8") as f:
             json.dump(page_metadata, f, indent=2, ensure_ascii=False)
 
-        print(f"\n  Parsed: {len(doc_mapping)} papers, {total_pages} pages total")
-        return page_metadata, doc_mapping
+        return doc_mapping, page_metadata
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # Step 3: ColPali embedding
-    # ─────────────────────────────────────────────────────────────────────────
+    def _generate_colpali_embeddings(self, page_metadata: dict):
+        """Loads ColPali and embeds page images to .npy files."""
+        print("\n[Step 3/6] Building ColPali Visual Embeddings...")
+        npy_dir = self.resolved_paths["multivectors"]
 
-    def step3_colpali(self, page_metadata: dict) -> None:
-        """Embed page images with ColPali using src.embeddings.colpali_embedder."""
-        from src.embeddings.colpali_embedder import ColPaliEmbedder
-        import numpy as np
-        from PIL import Image
-
-        colpali_cfg = self.models.get("colpali", {})
-        embedder    = ColPaliEmbedder(
-            model_name=colpali_cfg.get("model_name", "vidore/colpali-v1.2"),
-            device=colpali_cfg.get("device", "cuda"),
-            torch_dtype=colpali_cfg.get("torch_dtype", "float16"),
+        # Check existing embeddings
+        existing = set(
+            f.replace(".npy", "")
+            for f in os.listdir(npy_dir)
+            if f.endswith(".npy") and not f.endswith(".meta.npy")
         )
 
-        # Find already embedded pages
-        existing = {f.replace(".npy", "") for f in os.listdir(self.npy_dir) if f.endswith(".npy")}
-        to_embed = [
-            (pk, meta) for pk, meta in page_metadata.items()
-            if pk not in existing and meta.get("image_path") and os.path.exists(meta["image_path"])
-        ]
-
-        print(f"  Already embedded : {len(existing)} pages")
-        print(f"  To embed         : {len(to_embed)} pages")
-
-        if not to_embed:
-            print("  All pages already embedded — skipping.")
-            return
-
-        print("  Loading ColPali model ...")
-        embedder.load()
-
-        embedded = 0
-        errors   = 0
-        t_start  = time.time()
-
-        for i, (page_key, meta) in enumerate(to_embed):
-            try:
-                img = Image.open(meta["image_path"]).convert("RGB")
-                result = embedder.embed_image(img)
-                vectors = result.vectors  # numpy array (num_patches, 128)
-                np.save(os.path.join(self.npy_dir, f"{page_key}.npy"), vectors)
-                embedded += 1
-
-                if (i + 1) % 20 == 0 or (i + 1) == len(to_embed):
-                    elapsed = time.time() - t_start
-                    rate    = embedded / max(elapsed, 1)
-                    eta     = (len(to_embed) - (i + 1)) / max(rate, 0.01) / 60
-                    print(f"  [{i+1:3d}/{len(to_embed)}] embedded={embedded} | "
-                          f"rate={rate:.2f}p/s | ETA={eta:.1f}min")
-            except torch.cuda.OutOfMemoryError:
-                print(f"  ⚠️  OOM on {page_key} — skipping")
-                torch.cuda.empty_cache()
-                errors += 1
-            except Exception as e:
-                print(f"  ❌ {page_key}: {e}")
-                errors += 1
-
-        print("  Unloading ColPali ...")
-        embedder.unload()
-        gc.collect()
-
-        print(f"\n  ColPali: embedded={embedded}, errors={errors}, "
-              f"time={( time.time()-t_start)/60:.1f}min")
-
-    # ─────────────────────────────────────────────────────────────────────────
-    # Step 4: SciNCL → ChromaDB
-    # ─────────────────────────────────────────────────────────────────────────
-
-    def step4_scincl(self, page_metadata: dict) -> None:
-        """Build SciNCL text index using src.embeddings.scincl_embedder."""
-        from src.embeddings.scincl_embedder import SciNCLEmbedder
-        import chromadb
-
-        scincl_cfg  = self.models.get("scincl", {})
-        retrieval_cfg = self.cfg.get("retrieval", {})
-        collection_name = retrieval_cfg.get("chroma_collection", "sci_rag_pages")
-        batch_size  = scincl_cfg.get("batch_size", 32)
-
-        embedder = SciNCLEmbedder(
-            model_name=scincl_cfg.get("model_name", "malteos/scincl"),
-            device=scincl_cfg.get("device", "cuda"),
-            max_length=scincl_cfg.get("max_length", 512),
-        )
-
-        # Init ChromaDB
-        chroma_client = chromadb.PersistentClient(path=self.chroma_dir)
-        try:
-            chroma_client.delete_collection(collection_name)
-            print(f"  Deleted existing collection '{collection_name}'")
-        except Exception:
-            pass
-
-        collection = chroma_client.create_collection(
-            name=collection_name,
-            metadata={"hnsw:space": "cosine"},
-        )
-        print(f"  Created ChromaDB collection: {collection_name}")
-
-        # Prepare texts
-        texts, metas, ids = [], [], []
-        for page_key, meta in page_metadata.items():
-            text = meta.get("text", "").strip()
-            if not text or len(text) < 20:
+        to_embed = {}
+        for pk, meta in page_metadata.items():
+            if pk in existing:
                 continue
-            texts.append(text[:512])
-            metas.append({
-                "doc_id":      meta.get("doc_id", ""),
-                "page_num":    str(meta.get("page_num", 0)),
-                "paper_title": meta.get("paper_title", ""),
-            })
-            ids.append(page_key)
+            img_path = meta.get("image_path", "")
+            if img_path and os.path.exists(img_path):
+                to_embed[pk] = img_path
 
-        print(f"  Pages with valid text: {len(texts)}")
-        print("  Loading SciNCL model ...")
-        embedder.load()
+        print(f"  Already embedded: {len(existing)} pages")
+        print(f"  To embed:         {len(to_embed)} pages")
 
-        count   = 0
-        t_start = time.time()
+        if to_embed:
+            model_cfg = self.cfg.get("models", {}).get("colpali", "vidore/colpali-v1.2")
+            device = "cuda"
+            
+            # Load
+            print(f"  Loading ColPali...")
+            model, processor = load_colpali(model_cfg, device=device)
+            
+            # Embed
+            def progress(c, t, msg):
+                print(f"  [{c}/{t}] {msg}")
 
-        for i in range(0, len(texts), batch_size):
-            batch_texts = texts[i:i + batch_size]
-            batch_ids   = ids[i:i + batch_size]
-            batch_metas = metas[i:i + batch_size]
+            ColPaliEmbedder.batch_embed(to_embed, npy_dir, model, processor, status_callback=progress)
+            
+            # Unload
+            print("  Unloading ColPali model...")
+            del model, processor
+            clean_vram()
 
-            result = embedder.embed_texts(batch_texts)
-            embeddings = result.vectors  # numpy (batch, 768)
+        print("  ✅ ColPali visual embeddings complete!")
 
-            collection.upsert(
-                ids=batch_ids,
-                embeddings=embeddings.tolist(),
-                documents=[t[:500] for t in batch_texts],
-                metadatas=batch_metas,
-            )
-            count += len(batch_ids)
+    def _generate_scincl_embeddings(self, page_metadata: dict):
+        """Loads SciNCL and embeds texts into ChromaDB."""
+        print("\n[Step 4/6] Building SciNCL Text Embeddings & ChromaDB Index...")
+        chroma_dir = self.resolved_paths["chroma_index"]
+        collection_name = self.retrieval.get("chroma_collection", "sci_rag_pages")
 
-            elapsed = time.time() - t_start
-            rate    = count / max(elapsed, 1)
-            eta     = (len(texts) - count) / max(rate, 0.1) / 60
-            print(f"  [{count:3d}/{len(texts)}] rate={rate:.1f}p/s | ETA={eta:.1f}min")
+        model_cfg = self.cfg.get("models", {}).get("scincl", "malteos/scincl")
+        device = "cuda"
 
-        print("  Unloading SciNCL ...")
-        embedder.unload()
-        gc.collect()
+        # Load
+        print(f"  Loading SciNCL model...")
+        model = load_scincl(model_cfg, device=device)
 
-        print(f"\n  SciNCL: indexed={collection.count()} entries, "
-              f"time={( time.time()-t_start)/60:.1f}min")
+        # Index
+        def progress(c, t, msg):
+            print(f"  [{c}/{t}] {msg}")
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # Save summary
-    # ─────────────────────────────────────────────────────────────────────────
+        SciNCLEmbedder.embed_text_to_chroma(
+            page_metadata,
+            chroma_dir,
+            collection_name,
+            model,
+            batch_size=32,
+            status_callback=progress
+        )
 
-    def _save_summary(self, doc_mapping: dict, page_metadata: dict) -> None:
-        npy_files = list(Path(self.npy_dir).glob("*.npy"))
+        # Unload
+        print("  Unloading SciNCL model...")
+        del model
+        clean_vram()
+
+        print("  ✅ SciNCL text embeddings complete!")
+
+    def _save_summary(self, doc_mapping: dict, page_metadata: dict):
+        """Saves overall indexing metadata summary.json."""
+        print("\n[Step 5/6] Creating Index Summary Statistics...")
+        npy_dir = self.resolved_paths["multivectors"]
+        npy_files = [f for f in os.listdir(npy_dir) if f.endswith(".npy") and not f.endswith(".meta.npy")]
+
+        total_pages = sum(d["num_pages"] for d in doc_mapping.values())
+        npy_size_mb = sum(
+            os.path.getsize(os.path.join(npy_dir, f)) / 1024**2
+            for f in npy_files
+        )
+
         summary = {
-            "created_at":     time.strftime("%Y-%m-%d %H:%M:%S"),
-            "num_papers":     len(doc_mapping),
-            "total_pages":    len(page_metadata),
-            "colpali_files":  len(npy_files),
+            "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "num_papers": len(doc_mapping),
+            "total_pages": total_pages,
+            "colpali_files": len(npy_files),
+            "colpali_size_mb": round(npy_size_mb, 2),
             "chroma_entries": len(page_metadata),
             "models_used": {
-                "colpali": self.models.get("colpali", {}).get("model_name", "vidore/colpali-v1.2"),
-                "scincl":  self.models.get("scincl", {}).get("model_name",  "malteos/scincl"),
+                "colpali": self.cfg.get("models", {}).get("colpali", {}).get("model_name", "vidore/colpali-v1.2"),
+                "scincl": self.cfg.get("models", {}).get("scincl", {}).get("model_name", "malteos/scincl")
             },
-            "papers": {aid: {"title": title} for aid, title in self.papers.items()},
+            "papers": {
+                arxiv_id: {
+                    "title": info["title"],
+                    "num_pages": info["num_pages"]
+                }
+                for arxiv_id, info in doc_mapping.items()
+            }
         }
 
-        out_path = os.path.join(self.indices_dir, "summary.json")
-        with open(out_path, "w") as f:
+        with open(os.path.join(self.resolved_paths["indices"], "summary.json"), "w") as f:
             json.dump(summary, f, indent=2)
-        print(f"\n  Summary saved → {out_path}")
+
+        print(f"  Summary saved -> {os.path.join(self.resolved_paths['indices'], 'summary.json')}")
+        print(f"  Ingested {summary['num_papers']} papers ({summary['total_pages']} pages total)")
+
+    def _create_zip_archives(self):
+        """Packages indices and parsed directories as downloadable zip artifacts."""
+        print("\n[Step 6/6] Packaging Zip Archives...")
+        
+        # Zip indices
+        indices_dir = self.resolved_paths["indices"]
+        indices_zip = os.path.join(self.base if self.base else ".", "data", "sci-rag-indices.zip")
+        print(f"  Creating {indices_zip}...")
+        create_zip_archive(indices_dir, indices_zip)
+
+        # Zip pages
+        parsed_dir = os.path.join(self.base if self.base else ".", "data", "parsed")
+        pages_zip = os.path.join(self.base if self.base else ".", "data", "sci-rag-pages.zip")
+        print(f"  Creating {pages_zip}...")
+        create_zip_archive(parsed_dir, pages_zip)
+
+        print("  ✅ Zip archives created!")
