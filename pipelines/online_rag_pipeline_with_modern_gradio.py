@@ -100,10 +100,14 @@ print("=" * 55)
 
 import torch
 import numpy as np
-import torchao
+try:
+    import torchao
+    torchao_version = torchao.__version__
+except Exception as e:
+    torchao_version = f"Not available ({e})"
 
 print(f"  torch          : {torch.__version__}")
-print(f"  torchao        : {torchao.__version__}")
+print(f"  torchao        : {torchao_version}")
 
 if torch.cuda.is_available():
     print(f"  GPU            : {torch.cuda.get_device_name(0)}")
