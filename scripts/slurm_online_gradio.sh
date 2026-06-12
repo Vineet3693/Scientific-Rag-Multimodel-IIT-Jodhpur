@@ -65,7 +65,7 @@ cd "${WORK_DIR}"
 
 echo ""
 echo "════════════════════════════════════════════════════════════"
-echo "  Starting Scientific RAG — Streamlit Q&A App on port ${PORT}"
+echo "  Starting Scientific RAG — Gradio Q&A App on port ${PORT}"
 echo ""
 echo "  On YOUR LAPTOP — open a new terminal and run:"
 echo "  ssh -L ${PORT}:localhost:${PORT} divyasaxena_rs@172.25.0.81"
@@ -74,11 +74,8 @@ echo "  Then open: http://localhost:${PORT}"
 echo "════════════════════════════════════════════════════════════"
 echo ""
 
-python3 -u -m streamlit run app/streamlit_app.py \
-  --server.port "${PORT}" \
-  --server.address "0.0.0.0" \
-  --server.headless true \
-  --browser.gatherUsageStats false
+export GRADIO_PORT=${PORT}
+python3 -u pipelines/online_rag_pipeline_with_modern_gradio.py
 
 echo ""
 echo "════════════════════════════════════════════════════════════"
